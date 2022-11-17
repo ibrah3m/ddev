@@ -31,7 +31,7 @@ To open and work on DDEV you can use the button below.
 
 If you want to run a web project, you can check it out into `/workspace/<yourproject>` and use it as usual. The things you’re familiar with work normally, except that `ddev-router` does not run.
 
-A Gitpod dummy project for is provided by default in `/workspace/d9simple`. If you’re testing your own project, you will need to delete it to free up reserved host ports by running `ddev delete -Oy d9simple`. Then you can run `ddev start` to work with your own.
+A Gitpod dummy project for is provided by default in `/workspace/d9simple`. If you’re testing your own project, you will need to delete it to free up reserved host ports by running `ddev delete -Oy d9simple`. Then you can run [`ddev start`](../users/basics/commands.md#start) to work with your own.
 
 ## Making Changes to DDEV Images
 
@@ -51,7 +51,7 @@ cd /workspace/ddev
 make
 ```
 
-`ddev version` should show you that you are using the correct webtag, and `ddev start` will show it.
+`ddev version` should show you that you are using the correct webtag, and [`ddev start`](../users/basics/commands.md#start) will show it.
 
 It’s easiest to do this using Gitpod (see above) because Gitpod already has `docker buildx` all set up for you and the built DDEV binary is in the `$PATH`.
 
@@ -172,8 +172,6 @@ When changes are made to an image, they have to be temporarily pushed to a tag�
 Once you’ve opened a pull request, a discussion will start around your proposed changes. Other contributors and users may chime in, but ultimately the decision is made by the maintainer(s). You may be asked to make some changes to your pull request. If so, add more commits to your branch and push them. They’ll automatically go into the existing pull request.
 
 If your pull request is merged, great! If not, no sweat; it may not be what the project maintainer had in mind, or they were already working on it. This happens, so our recommendation is to take any feedback you’ve received and go forth and pull request again. Or create your own open source project.
-
-Adapted from [GitHub Guides](https://guides.github.com/activities/contributing-to-open-source/).
 
 ## Coding Style
 

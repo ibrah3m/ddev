@@ -626,6 +626,18 @@ func CheckDockerVersion(versionConstraint string) error {
 		return err
 	}
 
+	// See if they're using broken docker desktop on linux
+	if runtime.GOOS == "linux" {
+		client := GetDockerClient()
+		info, err := client.Info()
+		if err != nil {
+			return fmt.Errorf("unable to get docker info: %v", err)
+		}
+		if info.Name == "docker-desktop" {
+			return fmt.Errorf("Docker Desktop on Linux is not yet compatible with DDEV")
+		}
+	}
+
 	constraint, err := semver.NewConstraint(versionConstraint)
 	if err != nil {
 		return err
@@ -1081,9 +1093,9 @@ func GetHostDockerInternalIP() (string, error) {
 // GetNFSServerAddr gets the addrss that can be used for the NFS server.
 // It's almost the same as GetDockerHostInternalIP() but we have
 // to get the actual addr in the case of linux; still, linux rarely
-// is used with NFS.
+// is used with NFS. Returns "host.docker.internal" by default (not empty)
 func GetNFSServerAddr() (string, error) {
-	nfsAddr := ""
+	nfsAddr := "host.docker.internal"
 
 	switch {
 	case IsColima():
