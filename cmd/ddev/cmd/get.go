@@ -50,6 +50,8 @@ ddev get --list --all
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		officialOnly := true
+		verbose := false
+
 		if cmd.Flag("list").Changed {
 			if cmd.Flag("all").Changed {
 				officialOnly = false
@@ -65,6 +67,10 @@ ddev get --list --all
 			out := renderRepositoryList(repos)
 			output.UserOut.WithField("raw", repos).Print(out)
 			return
+		}
+
+		if cmd.Flags().Changed("verbose") {
+			verbose = true
 		}
 
 		if len(args) < 1 {
@@ -144,7 +150,7 @@ ddev get --list --all
 		}
 
 		// 20220811: Don't auto-start because it auto-creates the wrong database in some situations, leading to a
-		// chicken-egg problem in getting database configured. See https://github.com/platformsh/ddev-platformsh/issues/24
+		// chicken-egg problem in getting database configured. See https://github.com/drud/ddev-platformsh/issues/24
 		// Automatically start, as we don't want to be taking actions with mutagen off, for example.
 		//if status, _ := app.SiteStatus(); status != ddevapp.SiteRunning {
 		//	err = app.Start()
@@ -185,13 +191,26 @@ ddev get --list --all
 		if err != nil {
 			util.Failed("Unable to YamlToDict: %v", err)
 		}
-		for _, action := range s.PreInstallActions {
-			err = processAction(action, dict, bash)
+		if len(s.PreInstallActions) > 0 {
+			util.Success("\nExecuting pre-install actions:")
+		}
+		for i, action := range s.PreInstallActions {
+			err = processAction(action, dict, bash, verbose)
 			if err != nil {
-				util.Failed("could not process pre-install action '%s': %v", action, err)
+				desc := getDdevDescription(action)
+				if err != nil {
+					if !verbose {
+						util.Failed("could not process pre-install action (%d) '%s'. For more detail use ddev get --verbose", i, desc)
+					} else {
+						util.Failed("could not process pre-install action (%d) '%s'; error=%v\n action=%s", i, desc, err, action)
+					}
+				}
 			}
 		}
 
+		if len(s.ProjectFiles) > 0 {
+			util.Success("\nInstalling project-level components:")
+		}
 		for _, file := range s.ProjectFiles {
 			file := os.ExpandEnv(file)
 			src := filepath.Join(extractedDir, file)
@@ -201,12 +220,15 @@ ddev get --list --all
 				if err != nil {
 					util.Failed("Unable to copy %v to %v: %v", src, dest, err)
 				}
-				output.UserOut.Printf("Installed file %s", dest)
+				util.Success("%c %s", '\U0001F44D', file)
 			} else {
 				util.Warning("NOT overwriting file/directory %s. The #ddev-generated signature was not found in the file, so it will not be overwritten. You can just remove the file and use ddev get again if you want it to be replaced: %v", dest, err)
 			}
 		}
 		globalDotDdev := filepath.Join(globalconfig.GetGlobalDdevDir())
+		if len(s.GlobalFiles) > 0 {
+			util.Success("\nInstalling global components:")
+		}
 		for _, file := range s.GlobalFiles {
 			file := os.ExpandEnv(file)
 			src := filepath.Join(extractedDir, file)
@@ -218,7 +240,7 @@ ddev get --list --all
 				if err != nil {
 					util.Failed("Unable to copy %v to %v: %v", src, dest, err)
 				}
-				output.UserOut.Printf("Installed file %s", dest)
+				util.Success("%c %s", '\U0001F44D', file)
 			} else {
 				util.Warning("NOT overwriting file/directory %s. The #ddev-generated signature was not found in the file, so it will not be overwritten. You can just remove the file and use ddev get again if you want it to be replaced: %v", dest, err)
 			}
@@ -232,14 +254,22 @@ ddev get --list --all
 			util.Failed("Unable to chdir to %v: %v", app.GetConfigPath(""), err)
 		}
 
-		for _, action := range s.PostInstallActions {
-			err = processAction(action, dict, bash)
+		if len(s.PostInstallActions) > 0 {
+			util.Success("\nExecuting post-install actions:")
+		}
+		for i, action := range s.PostInstallActions {
+			err = processAction(action, dict, bash, verbose)
+			desc := getDdevDescription(action)
 			if err != nil {
-				util.Failed("could not process post-install action '%s': %v", action, err)
+				if !verbose {
+					util.Failed("could not process post-install action (%d) '%s'", i, desc)
+				} else {
+					util.Failed("could not process post-install action (%d) '%s': %v", i, desc, err)
+				}
 			}
 		}
 
-		util.Success("Downloaded add-on %s, use `ddev restart` to enable.", sourceRepoArg)
+		util.Success("\nInstalled DDEV add-on %s, use `ddev restart` to enable.", sourceRepoArg)
 		if argType == "github" {
 			util.Success("Please read instructions for this addon at the source repo at\nhttps://github.com/%v/%v\nPlease file issues and create pull requests there to improve it.", owner, repo)
 		}
@@ -248,7 +278,7 @@ ddev get --list --all
 }
 
 // processAction takes a stanza from yaml exec section and executes it.
-func processAction(action string, dict map[string]interface{}, bashPath string) error {
+func processAction(action string, dict map[string]interface{}, bashPath string, verbose bool) error {
 	action = "set -eu -o pipefail\n" + action
 	t, err := template.New("processAction").Funcs(sprig.TxtFuncMap()).Parse(action)
 	if err != nil {
@@ -262,17 +292,34 @@ func processAction(action string, dict map[string]interface{}, bashPath string) 
 	}
 	action = doc.String()
 
+	desc := getDdevDescription(action)
+	if verbose {
+		action = "set -x; " + action
+	}
 	out, err := exec.RunHostCommand(bashPath, "-c", action)
+	if len(out) > 0 {
+		util.Warning(out)
+	}
 	if err != nil {
+		util.Warning("%c %s", '\U0001F44E', desc)
 		return fmt.Errorf("Unable to run action %v: %v, output=%s", action, err, out)
 	}
-	if len(out) > 0 {
-		output.UserOut.Print(out)
-	}
-	if !strings.Contains(action, `#ddev-nodisplay`) {
-		output.UserOut.Printf("Executed action '%v', output='%s'", action, out)
+	if desc != "" {
+		util.Success("%c %s", '\U0001F44D', desc)
 	}
 	return nil
+}
+
+// getDdevDescription returns what follows #ddev-description: in any line in action
+func getDdevDescription(action string) string {
+	descLines := nodeps.GrepStringInBuffer(action, `[\r\n]+#ddev-description:.*[\r\n]+`)
+	if len(descLines) > 0 {
+		d := strings.Split(descLines[0], ":")
+		if len(d) > 1 {
+			return strings.Trim(d[1], "\r\n\t")
+		}
+	}
+	return ""
 }
 
 func renderRepositoryList(repos []github.Repository) string {
@@ -311,6 +358,7 @@ func renderRepositoryList(repos []github.Repository) string {
 func init() {
 	Get.Flags().Bool("list", true, fmt.Sprintf(`List available add-ons for 'ddev get'`))
 	Get.Flags().Bool("all", true, fmt.Sprintf(`List unofficial add-ons for 'ddev get' in addition to the official ones`))
+	Get.Flags().BoolP("verbose", "v", false, "Extended/verbose output for ddev get")
 	RootCmd.AddCommand(Get)
 }
 

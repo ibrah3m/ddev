@@ -4,29 +4,24 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"github.com/drud/ddev/pkg/globalconfig"
+	"github.com/drud/ddev/pkg/nodeps"
 	"github.com/drud/ddev/pkg/versionconstants"
+	"github.com/mattn/go-isatty"
+	"github.com/otiai10/copy"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v2"
-	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 
-	"github.com/drud/ddev/pkg/globalconfig"
-	"github.com/drud/ddev/pkg/nodeps"
-	"github.com/lextoumbourou/goodhosts"
-	"github.com/mattn/go-isatty"
-	"github.com/otiai10/copy"
-	osexec "os/exec"
-
 	"path"
 	"time"
 
 	"github.com/drud/ddev/pkg/appimport"
 	"github.com/drud/ddev/pkg/archive"
-	"github.com/drud/ddev/pkg/ddevhosts"
 	"github.com/drud/ddev/pkg/dockerutil"
 	"github.com/drud/ddev/pkg/exec"
 	"github.com/drud/ddev/pkg/fileutil"
@@ -224,6 +219,7 @@ func (app *DdevApp) Describe(short bool) (map[string]interface{}, error) {
 	appDesc["type"] = app.GetType()
 	appDesc["mutagen_enabled"] = app.IsMutagenEnabled()
 	appDesc["nodejs_version"] = app.NodeJSVersion
+	appDesc["use_traefik"] = globalconfig.DdevGlobalConfig.UseTraefik
 	if app.IsMutagenEnabled() {
 		appDesc["mutagen_status"], _, _, err = app.MutagenStatus()
 		if err != nil {
@@ -257,7 +253,7 @@ func (app *DdevApp) Describe(short bool) (map[string]interface{}, error) {
 			dbinfo["host"] = "db"
 			dbPublicPort, err := app.GetPublishedPort("db")
 			util.CheckErr(err)
-			dbinfo["dbPort"] = GetInternalPort(app, "db")
+			dbinfo["dbPort"] = GetExposedPort(app, "db")
 			util.CheckErr(err)
 			dbinfo["published_port"] = dbPublicPort
 			dbinfo["database_type"] = "mariadb" // default
@@ -309,6 +305,7 @@ func (app *DdevApp) Describe(short bool) (map[string]interface{}, error) {
 		services[shortName]["status"] = c.State.Status
 		services[shortName]["full_name"] = fullName
 		services[shortName]["image"] = strings.TrimSuffix(c.Config.Image, fmt.Sprintf("-%s-built", app.Name))
+		services[shortName]["short_name"] = shortName
 		var ports []string
 		for pk := range c.Config.ExposedPorts {
 			ports = append(ports, pk.Port())
@@ -375,7 +372,7 @@ func (app *DdevApp) GetPublishedPort(serviceName string) (int, error) {
 		return -1, fmt.Errorf("failed to find container of type %s: %v", serviceName, err)
 	}
 
-	privatePort, _ := strconv.ParseInt(GetInternalPort(app, serviceName), 10, 16)
+	privatePort, _ := strconv.ParseInt(GetExposedPort(app, serviceName), 10, 16)
 
 	publishedPort := dockerutil.GetPublishedPort(privatePort, *container)
 	return publishedPort, nil
@@ -1126,39 +1123,6 @@ Fix with 'ddev config global --required-docker-compose-version="" --use-docker-c
 	// Fix any obsolete things like old shell commands, etc.
 	app.FixObsolete()
 
-	if !IsRouterDisabled(app) {
-		caRoot := globalconfig.GetCAROOT()
-		if caRoot == "" {
-			util.Warning("mkcert may not be properly installed, we suggest installing it for trusted https support, `brew install mkcert nss`, `choco install -y mkcert`, etc. and then `mkcert -install`")
-		}
-		router, _ := FindDdevRouter()
-		// If the router doesn't exist, go ahead and push mkcert root ca certs into the ddev-global-cache/mkcert
-		// This will often be redundant
-		if router == nil {
-			// Copy ca certs into ddev-global-cache/mkcert
-			if caRoot != "" {
-				uid, _, _ := util.GetContainerUIDGid()
-				err = dockerutil.CopyIntoVolume(caRoot, "ddev-global-cache", "mkcert", uid, "", false)
-				if err != nil {
-					util.Warning("failed to copy root CA into docker volume ddev-global-cache/mkcert: %v", err)
-				} else {
-					util.Success("Pushed mkcert rootca certs to ddev-global-cache/mkcert")
-				}
-			}
-		}
-
-		certPath := app.GetConfigPath("custom_certs")
-		if fileutil.FileExists(certPath) {
-			uid, _, _ := util.GetContainerUIDGid()
-			err = dockerutil.CopyIntoVolume(certPath, "ddev-global-cache", "custom_certs", uid, "", false)
-			if err != nil {
-				util.Warning("failed to copy custom certs into docker volume ddev-global-cache/custom_certs: %v", err)
-			} else {
-				util.Success("Copied custom certs in %s to ddev-global-cache/custom_certs", certPath)
-			}
-		}
-	}
-
 	app.CreateUploadDirIfNecessary()
 
 	// WriteConfig .ddev-docker-compose-*.yaml
@@ -1205,6 +1169,54 @@ Fix with 'ddev config global --required-docker-compose-version="" --use-docker-c
 	_, _, err = dockerutil.ComposeCmd([]string{app.DockerComposeFullRenderedYAMLPath()}, "up", "--build", "-d")
 	if err != nil {
 		return err
+	}
+
+	if !IsRouterDisabled(app) {
+		caRoot := globalconfig.GetCAROOT()
+		if caRoot == "" {
+			util.Warning("mkcert may not be properly installed, we suggest installing it for trusted https support, `brew install mkcert nss`, `choco install -y mkcert`, etc. and then `mkcert -install`")
+		}
+		router, _ := FindDdevRouter()
+
+		// If the router doesn't exist, go ahead and push mkcert root ca certs into the ddev-global-cache/mkcert
+		// This will often be redundant
+		if router == nil {
+			// Copy ca certs into ddev-global-cache/mkcert
+			if caRoot != "" {
+				uid, _, _ := util.GetContainerUIDGid()
+				err = dockerutil.CopyIntoVolume(caRoot, "ddev-global-cache", "mkcert", uid, "", false)
+				if err != nil {
+					util.Warning("failed to copy root CA into docker volume ddev-global-cache/mkcert: %v", err)
+				} else {
+					util.Debug("Pushed mkcert rootca certs to ddev-global-cache/mkcert")
+				}
+			}
+
+		}
+
+		// If TLS supported and using traefik, create cert/key and push into ddev-global-cache/traefik
+		if globalconfig.DdevGlobalConfig.UseTraefik {
+			err = configureTraefikForApp(app)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Push custom certs
+		targetSubdir := "custom_certs"
+		if globalconfig.DdevGlobalConfig.UseTraefik {
+			targetSubdir = path.Join("traefik", "certs")
+		}
+		certPath := app.GetConfigPath("custom_certs")
+		uid, _, _ := util.GetContainerUIDGid()
+		if fileutil.FileExists(certPath) && globalconfig.DdevGlobalConfig.MkcertCARoot != "" {
+			err = dockerutil.CopyIntoVolume(certPath, "ddev-global-cache", targetSubdir, uid, "", false)
+			if err != nil {
+				util.Warning("failed to copy custom certs into docker volume ddev-global-cache/custom_certs: %v", err)
+			} else {
+				util.Debug("Installed custom cert from %s", certPath)
+			}
+		}
 	}
 
 	if app.IsMutagenEnabled() {
@@ -1812,15 +1824,11 @@ func (app *DdevApp) DockerEnv() {
 		util.Warning("Warning: containers will run as root. This could be a security risk on Linux.")
 	}
 
-	isGitpod := "false"
-
-	// For gitpod,
-	// * provide IS_GITPOD environment variable
+	// For gitpod, codespaces
 	// * provide default host-side port bindings, assuming only one project running,
 	//   as is usual on gitpod, but if more than one project, can override with normal
 	//   config.yaml settings.
-	if nodeps.IsGitpod() {
-		isGitpod = "true"
+	if nodeps.IsGitpod() || nodeps.IsCodespaces() {
 		if app.HostWebserverPort == "" {
 			app.HostWebserverPort = "8080"
 		}
@@ -1877,6 +1885,7 @@ func (app *DdevApp) DockerEnv() {
 		"DDEV_FILES_DIR":                app.GetContainerUploadDirFullPath(),
 
 		"DDEV_HOST_DB_PORT":          dbPortStr,
+		"DDEV_HOST_MAILHOG_PORT":     app.HostMailhogPort,
 		"DDEV_HOST_WEBSERVER_PORT":   app.HostWebserverPort,
 		"DDEV_HOST_HTTPS_PORT":       app.HostHTTPSPort,
 		"DDEV_PHPMYADMIN_PORT":       app.PHPMyAdminPort,
@@ -1899,7 +1908,8 @@ func (app *DdevApp) DockerEnv() {
 		"GOOS":                       runtime.GOOS,
 		"GOARCH":                     runtime.GOARCH,
 		"IS_DDEV_PROJECT":            "true",
-		"IS_GITPOD":                  isGitpod,
+		"IS_GITPOD":                  strconv.FormatBool(nodeps.IsGitpod()),
+		"IS_CODESPACES":              strconv.FormatBool(nodeps.IsCodespaces()),
 		"IS_WSL2":                    isWSL2,
 	}
 
@@ -2080,7 +2090,7 @@ func (app *DdevApp) Snapshot(snapshotName string) (string, error) {
 	// Ensure that db container is up.
 	err = app.Wait([]string{"db"})
 	if err != nil {
-		return "", fmt.Errorf("unable to snapshot database, \nyour db container in project %v is not running. \nPlease start the project if you want to snapshot it. \nIf deleting project, you can delete without a snapshot using \n'ddev delete --remove-data --yes', \nwhich will destroy your database", app.Name)
+		return "", fmt.Errorf("unable to snapshot database, \nyour db container in project %v is not running. \nPlease start the project if you want to snapshot it. \nIf deleting project, you can delete without a snapshot using \n'ddev delete --omit-snapshot --yes', \nwhich will destroy your database", app.Name)
 	}
 
 	util.Success("Creating database snapshot %s", snapshotName)
@@ -2211,22 +2221,21 @@ func (app *DdevApp) Stop(removeData bool, createSnapshot bool) error {
 		util.Warning("Unable to SyncAndterminateMutagenSession: %v", err)
 	}
 
+	if globalconfig.DdevGlobalConfig.UseTraefik && status == SiteRunning {
+		_, _, err = app.Exec(&ExecOpts{
+			Cmd: fmt.Sprintf("rm -f /mnt/ddev-global-cache/traefik/*/%s.{yaml,crt,key}", app.Name),
+		})
+		if err != nil {
+			util.Warning("Unable to clean up traefik configuration: %v", err)
+		}
+	}
 	// If project is running, clean up ddev-global-cache
 	if status == SiteRunning && removeData {
 		_, _, err = app.Exec(&ExecOpts{
-			Cmd: "rm -rf /mnt/ddev-global-cache/*/${HOSTNAME}",
+			Cmd: fmt.Sprintf("rm -rf /mnt/ddev-global-cache/*/%s* /mnt/ddev-global-cache/traefik/*/%s*", app.Name, app.Name),
 		})
 		if err != nil {
 			util.Warning("Unable to clean up ddev-global-cache: %v", err)
-		}
-		if nodeps.ArrayContainsString(app.GetOmittedContainers(), "db") {
-			_, _, err = app.Exec(&ExecOpts{
-				Cmd:     "rm -rf /mnt/ddev-global-cache/*/${HOSTNAME}",
-				Service: "db",
-			})
-			if err != nil {
-				util.Warning("Unable to clean up ddev-global-cache: %v", err)
-			}
 		}
 	}
 
@@ -2242,7 +2251,7 @@ func (app *DdevApp) Stop(removeData bool, createSnapshot bool) error {
 		return err
 	}
 
-	// Remove data/database/projectInfo/hostname if we need to.
+	// Remove data/database/projectInfo/hosts entry if we need to.
 	if removeData {
 		err = TerminateMutagenSync(app)
 		if err != nil {
@@ -2357,6 +2366,13 @@ func (app *DdevApp) GetAllURLs() (httpURLs []string, httpsURLs []string, allURLs
 			httpsURLs = append(httpsURLs, url)
 		}
 	}
+	if nodeps.IsCodespaces() {
+		codespaceName := os.Getenv("CODESPACE_NAME")
+		if codespaceName != "" {
+			url := fmt.Sprintf("https://%s-%s.preview.app.github.dev", codespaceName, app.HostWebserverPort)
+			httpsURLs = append(httpsURLs, url)
+		}
+	}
 
 	// Get configured URLs
 	for _, name := range app.GetHostnames() {
@@ -2387,7 +2403,7 @@ func (app *DdevApp) GetPrimaryURL() string {
 	httpURLs, httpsURLs, _ := app.GetAllURLs()
 	urlList := httpsURLs
 	// If no mkcert trusted https, use the httpURLs instead
-	if !nodeps.IsGitpod() && (globalconfig.GetCAROOT() == "" || IsRouterDisabled(app)) {
+	if !nodeps.IsGitpod() && !nodeps.IsCodespaces() && (globalconfig.GetCAROOT() == "" || IsRouterDisabled(app)) {
 		urlList = httpURLs
 	}
 	if len(urlList) > 0 {
@@ -2454,129 +2470,6 @@ func (app *DdevApp) GetWebContainerHTTPSPublicPort() (int, error) {
 // HostName returns the hostname of a given application.
 func (app *DdevApp) HostName() string {
 	return app.GetHostname()
-}
-
-// AddHostsEntriesIfNeeded will (optionally) add the site URL to the host's /etc/hosts.
-func (app *DdevApp) AddHostsEntriesIfNeeded() error {
-	dockerIP, err := dockerutil.GetDockerIP()
-	if err != nil {
-		return fmt.Errorf("could not get Docker IP: %v", err)
-	}
-
-	hosts, err := ddevhosts.New()
-	if err != nil {
-		util.Failed("could not open hostfile: %v", err)
-	}
-
-	ipPosition := hosts.GetIPPosition(dockerIP)
-	if ipPosition != -1 && runtime.GOOS == "windows" {
-		hostsLine := hosts.Lines[ipPosition]
-		if len(hostsLine.Hosts) >= 10 {
-			util.Error("You have more than 9 entries in your (windows) hostsfile entry for %s", dockerIP)
-			util.Error("Please use `ddev hostname --remove-inactive` or edit the hosts file manually")
-			util.Error("Please see %s for more information", "https://ddev.readthedocs.io/en/stable/users/basics/troubleshooting/#windows-hosts-file-limited-to-10-hosts-per-ip-address-line")
-		}
-	}
-
-	for _, name := range app.GetHostnames() {
-		if app.UseDNSWhenPossible && globalconfig.IsInternetActive() {
-			// If they have provided "*.<name>" then look up the suffix
-			checkName := strings.TrimPrefix(name, "*.")
-			hostIPs, err := net.LookupHost(checkName)
-
-			// If we had successful lookup and dockerIP matches
-			// with adding to hosts file.
-			if err == nil && len(hostIPs) > 0 && hostIPs[0] == dockerIP {
-				continue
-			}
-		}
-
-		// We likely won't hit the hosts.Has() as true because
-		// we already did a lookup. But check anyway.
-		if hosts.Has(dockerIP, name) {
-			continue
-		}
-		util.Warning("The hostname %s is not currently resolvable, trying to add it to the hosts file", name)
-		err = addHostEntry(name, dockerIP)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// addHostEntry adds an entry to /etc/hosts
-// We would have hoped to use DNS or have found the entry already in hosts
-// But if it's not, try to add one.
-func addHostEntry(name string, ip string) error {
-	_, err := osexec.LookPath("sudo")
-	if (os.Getenv("DDEV_NONINTERACTIVE") != "") || err != nil {
-		util.Warning("You must manually add the following entry to your hosts file:\n%s %s\nOr with root/administrative privileges execute 'ddev hostname %s %s'", ip, name, name, ip)
-		if dockerutil.IsWSL2() {
-			util.Warning("For WSL2, if you use a Windows browser, execute 'sudo ddev hostname %s %s' on Windows", name, ip)
-		}
-		return nil
-	}
-
-	ddevFullpath, err := os.Executable()
-	util.CheckErr(err)
-
-	output.UserOut.Printf("ddev needs to add an entry to your hostfile.\nIt will require administrative privileges via the sudo command, so you may be required\nto enter your password for sudo. ddev is about to issue the command:")
-	if dockerutil.IsWSL2() {
-		util.Warning("You are on WSL2, so should also manually execute 'sudo ddev hostname %s %s' on Windows if you use a Windows browser.", name, ip)
-	}
-
-	hostnameArgs := []string{ddevFullpath, "hostname", name, ip}
-	command := strings.Join(hostnameArgs, " ")
-	util.Warning(fmt.Sprintf("    sudo %s", command))
-	output.UserOut.Println("Please enter your password if prompted.")
-	_, err = exec.RunCommandPipe("sudo", hostnameArgs)
-	if err != nil {
-		util.Warning("Failed to execute sudo command, you will need to manually execute '%s' with administrative privileges", command)
-	}
-	return nil
-}
-
-// RemoveHostsEntries will remote the site URL from the host's /etc/hosts.
-func (app *DdevApp) RemoveHostsEntries() error {
-	dockerIP, err := dockerutil.GetDockerIP()
-	if err != nil {
-		return fmt.Errorf("could not get Docker IP: %v", err)
-	}
-
-	hosts, err := goodhosts.NewHosts()
-	if err != nil {
-		util.Failed("could not open hostfile: %v", err)
-	}
-
-	for _, name := range app.GetHostnames() {
-		if !hosts.Has(dockerIP, name) {
-			continue
-		}
-
-		_, err = osexec.LookPath("sudo")
-		if os.Getenv("DDEV_NONINTERACTIVE") != "" || err != nil {
-			util.Warning("You must manually remove the following entry from your hosts file:\n%s %s\nOr with root/administrative privileges execute 'ddev hostname --remove %s %s", dockerIP, name, name, dockerIP)
-			return nil
-		}
-
-		ddevFullPath, err := os.Executable()
-		util.CheckErr(err)
-
-		output.UserOut.Printf("ddev needs to remove an entry from your hosts file.\nIt will require administrative privileges via the sudo command, so you may be required\nto enter your password for sudo. ddev is about to issue the command:")
-
-		hostnameArgs := []string{ddevFullPath, "hostname", "--remove", name, dockerIP}
-		command := strings.Join(hostnameArgs, " ")
-		util.Warning(fmt.Sprintf("    sudo %s", command))
-		output.UserOut.Println("Please enter your password if prompted.")
-
-		if _, err = exec.RunCommandPipe("sudo", hostnameArgs); err != nil {
-			util.Warning("Failed to execute sudo command, you will need to manually execute '%s' with administrative privileges", command)
-		}
-	}
-
-	return nil
 }
 
 // GetActiveAppRoot returns the fully rooted directory of the active app, or an error

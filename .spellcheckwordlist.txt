@@ -40,6 +40,7 @@ Does
 DrupalEasy
 Dump
 Enable
+EndeavourOS
 ExecStart
 ExecStop
 Execute
@@ -117,6 +118,7 @@ SomeExternalDrive
 Starts
 Support
 TablePlus
+Traefik
 TravisCI
 UAC
 Unshare
@@ -203,6 +205,8 @@ clis
 client
 cms
 codebase
+codespace
+codespaces
 colima
 colima's
 collection
@@ -224,6 +228,7 @@ crlf
 cron
 cson
 current
+customizable
 customizations
 daemon's
 daemonize
@@ -269,6 +274,7 @@ docroot
 docroots
 dotfile
 dotfiles
+dropdown
 drud
 drupal
 drupalize
@@ -491,6 +497,7 @@ provider
 ps
 psql
 public
+Querious
 quickstart
 quickstarts
 rabbitmq

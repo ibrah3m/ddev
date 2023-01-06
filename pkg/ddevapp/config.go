@@ -48,6 +48,9 @@ func init() {
 	if os.Getenv("DDEV_TEST_NO_BIND_MOUNTS") == "true" {
 		nodeps.NoBindMountsDefault = true
 	}
+	if os.Getenv("DDEV_TEST_USE_TRAEFIK") == "true" {
+		nodeps.UseTraefikDefault = true
+	}
 
 }
 
@@ -94,9 +97,9 @@ func NewApp(appRoot string, includeOverrides bool) (*DdevApp, error) {
 	// Provide a default app name based on directory name
 	app.Name = filepath.Base(app.AppRoot)
 
-	// Gather containers to omit, adding ddev-router for gitpod
+	// Gather containers to omit, adding ddev-router for gitpod/codespaces
 	app.OmitContainersGlobal = globalconfig.DdevGlobalConfig.OmitContainersGlobal
-	if nodeps.IsGitpod() {
+	if nodeps.IsGitpod() || nodeps.IsCodespaces() {
 		app.OmitContainersGlobal = append(app.OmitContainersGlobal, "ddev-router")
 	}
 
@@ -487,7 +490,7 @@ func (app *DdevApp) GetHostname() string {
 	return strings.ToLower(app.Name) + "." + app.ProjectTLD
 }
 
-// GetHostnames returns an array of all the configured hostnames.
+// GetHostnames returns a slice of all the configured hostnames.
 func (app *DdevApp) GetHostnames() []string {
 
 	// Use a map to make sure that we have unique hostnames
@@ -575,7 +578,7 @@ func (app *DdevApp) CheckCustomConfig() {
 		}
 	}
 	if customConfig {
-		util.Warning("Custom configuration takes effect when the container is created.\nShould something go wrong and no effect be visible use 'ddev restart'.")
+		util.Warning("Custom configuration is updated on restart.\nIf you don't see your custom configuration taking effect, run 'ddev restart'.")
 	}
 
 }
@@ -677,11 +680,13 @@ type composeYAMLVars struct {
 	HostUploadDir                   string
 	GitDirMount                     bool
 	IsGitpod                        bool
+	IsCodespaces                    bool
 	DefaultContainerTimeout         string
 	UseHostDockerInternalExtraHosts bool
 	WebExtraHTTPPorts               string
 	WebExtraHTTPSPorts              string
 	WebExtraExposedPorts            string
+	EnvFile                         string
 }
 
 // RenderComposeYAML renders the contents of .ddev/.ddev-docker-compose*.
@@ -720,13 +725,13 @@ func (app *DdevApp) RenderComposeYAML() (string, error) {
 		Name:                      app.Name,
 		Plugin:                    "ddev",
 		AppType:                   app.Type,
-		MailhogPort:               GetInternalPort(app, "mailhog"),
+		MailhogPort:               GetExposedPort(app, "mailhog"),
 		HostMailhogPort:           app.HostMailhogPort,
 		DBType:                    app.Database.Type,
 		DBVersion:                 app.Database.Version,
 		DBMountDir:                "/var/lib/mysql",
-		DBAPort:                   GetInternalPort(app, "dba"),
-		DBPort:                    GetInternalPort(app, "db"),
+		DBAPort:                   GetExposedPort(app, "dba"),
+		DBPort:                    GetExposedPort(app, "db"),
 		HostPHPMyAdminPort:        app.HostPHPMyAdminPort,
 		DdevGenerated:             nodeps.DdevFileSignature,
 		HostDockerInternalIP:      hostDockerInternalIP,
@@ -768,6 +773,7 @@ func (app *DdevApp) RenderComposeYAML() (string, error) {
 		ContainerUploadDir:    app.GetContainerUploadDirFullPath(),
 		GitDirMount:           false,
 		IsGitpod:              nodeps.IsGitpod(),
+		IsCodespaces:          nodeps.IsCodespaces(),
 		// Default max time we wait for containers to be healthy
 		DefaultContainerTimeout: app.DefaultContainerTimeout,
 		// Only use the extra_hosts technique for linux and only if not WSL2
@@ -778,6 +784,12 @@ func (app *DdevApp) RenderComposeYAML() (string, error) {
 	if fileutil.IsDirectory(filepath.Join(app.AppRoot, ".git")) {
 		templateVars.GitDirMount = true
 	}
+
+	envFile := app.GetConfigPath(".env")
+	if fileutil.FileExists(envFile) {
+		templateVars.EnvFile = envFile
+	}
+
 	// And we don't want to bind-mount upload dir if it doesn't exist.
 	// templateVars.UploadDir is relative path rooted in approot.
 	if app.GetHostUploadDirFullPath() == "" || !fileutil.FileExists(app.GetHostUploadDirFullPath()) {
@@ -897,7 +909,20 @@ redirect_stderr=true
 	// Add .pgpass to homedir on postgres
 	extraDBContent := ""
 	if app.Database.Type == nodeps.Postgres {
-		extraDBContent = `
+		// Postgres 9/10/11 upstream images are stretch-based, out of support from Debian.
+		// Postgres 9/10 are out of support by Postgres and no new images being pushed, see
+		// https://github.com/docker-library/postgres/issues/1012
+		// However, they do have a postgres:11-bullseye, but we won't start using it yet
+		// because of awkward changes to $DBIMAGE. Postgres 11 will be EOL Nov 2023
+		if nodeps.ArrayContainsString([]string{nodeps.Postgres9, nodeps.Postgres10, nodeps.Postgres11}, app.Database.Version) {
+			extraDBContent = extraDBContent + `
+RUN rm -f /etc/apt/sources.list.d/pgdg.list
+RUN apt-get update
+RUN apt-get -y install apt-transport-https
+RUN printf "deb http://apt-archive.postgresql.org/pub/repos/apt/ stretch-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+`
+		}
+		extraDBContent = extraDBContent + `
 ENV PATH $PATH:/usr/lib/postgresql/$PG_MAJOR/bin
 ADD postgres_healthcheck.sh /
 RUN chmod ugo+rx /postgres_healthcheck.sh
@@ -969,6 +994,7 @@ FROM $BASE_IMAGE
 ARG username
 ARG uid
 ARG gid
+ARG DDEV_PHP_VERSION
 RUN (groupadd --gid $gid "$username" || groupadd "$username" || true) && (useradd  -l -m -s "/bin/bash" --gid "$username" --comment '' --uid $uid "$username" || useradd  -l -m -s "/bin/bash" --gid "$username" --comment '' "$username" || useradd  -l -m -s "/bin/bash" --gid "$gid" --comment '' "$username" || useradd -l -m -s "/bin/bash" --comment '' $username )
 `
 	// If there are user pre.Dockerfile* files, insert their contents
@@ -991,6 +1017,7 @@ RUN (groupadd --gid $gid "$username" || groupadd "$username" || true) && (userad
 	if extraPackages != nil {
 		contents = contents + `
 ### DDEV-injected from webimage_extra_packages or dbimage_extra_packages
+
 RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y -o Dpkg::Options::="--force-confold" --no-install-recommends --no-install-suggests ` + strings.Join(extraPackages, " ") + "\n"
 	}
 
@@ -1227,7 +1254,7 @@ func PrepDdevDirectory(dir string) error {
 		}
 	}
 
-	err := CreateGitIgnore(dir, "**/*.example", ".dbimageBuild", ".dbimageExtra", ".ddev-docker-*.yaml", ".*downloads", ".global_commands", ".homeadditions", ".importdb*", ".sshimageBuild", ".webimageBuild", ".webimageExtra", "apache/apache-site.conf", "commands/.gitattributes", "commands/db/mysql", "commands/host/launch", "commands/web/xdebug", "commands/web/live", "config.*.y*ml", "db_snapshots", "import-db", "import.yaml", "mutagen", "nginx_full/nginx-site.conf", "postgres/postgresql.conf", "providers/platform.yaml", "sequelpro.spf", "xhprof", "**/README.*")
+	err := CreateGitIgnore(dir, "**/*.example", ".dbimageBuild", ".dbimageExtra", ".ddev-docker-*.yaml", ".*downloads", ".global_commands", ".homeadditions", ".importdb*", ".sshimageBuild", ".webimageBuild", ".webimageExtra", "apache/apache-site.conf", "commands/.gitattributes", "commands/db/mysql", "commands/host/launch", "commands/web/xdebug", "commands/web/live", "config.*.y*ml", "db_snapshots", "import-db", "import.yaml", "mutagen", "nginx_full/nginx-site.conf", "postgres/postgresql.conf", "providers/platform.yaml", "sequelpro.spf", "traefik", "xhprof", "**/README.*")
 	if err != nil {
 		return fmt.Errorf("failed to create gitignore in %s: %v", dir, err)
 	}

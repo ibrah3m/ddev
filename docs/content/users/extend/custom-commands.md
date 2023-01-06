@@ -8,7 +8,7 @@ Example commands in `ddev/commands/*/*.example` can be copied, moved, or symlink
 
 For example, [.ddev/commands/host/mysqlworkbench.example](https://github.com/drud/ddev/blob/master/pkg/ddevapp/global_dotddev_assets/commands/host/mysqlworkbench.example) can be used to add a `ddev mysqlworkbench` command. Rename it from `mysqlworkbench.example` to `mysqlworkbench`. If you’re on macOS or Linux (or some configurations of Windows) you can `cd .ddev/commands/host && ln -s mysqlworkbench.example mysqlworkbench`.
 
-The [`ddev mysql`](../basics/commands.md#mysql) runs the `mysql` client inside the `db` container command using this technique. See the [`ddev mysql` command](https://github.com/drud/ddev/blob/master/pkg/ddevapp/global_dotddev_assets/commands/db/mysql).
+The [`ddev mysql`](../usage/commands.md#mysql) runs the `mysql` client inside the `db` container command using this technique. See the [`ddev mysql` command](https://github.com/drud/ddev/blob/master/pkg/ddevapp/global_dotddev_assets/commands/db/mysql).
 
 ## Notes for All Command Types
 
@@ -71,6 +71,7 @@ A number of environment variables are provided to these command scripts. These a
 * `DDEV_HOSTNAME`: comma-separated list of FQDN hostnames
 * `DDEV_HOST_DB_PORT`: localhost port of the database server
 * `DDEV_HOST_HTTPS_PORT`: localhost port for HTTPS on web server
+* `DDEV_HOST_MAILHOG_PORT`: localhost port for MailHog
 * `DDEV_HOST_WEBSERVER_PORT`: localhost port of the web server
 * `DDEV_PHP_VERSION`: current PHP version
 * `DDEV_PRIMARY_URL`: primary project URL
@@ -131,6 +132,10 @@ Example: `## Example: commandname\ncommandname -h`
 ### “Flags” Annotation
 
 `Flags` should explain any available flags, including their shorthand when relevant, for the help message. It has to be encoded according the following definition:
+
+If no flags are specified, the command will have its flags parsing disabled. Global flags like `--help` will not work unless the command supports them.
+
+You can still do `ddev help <command>` to see the command's provided usage help.
 
 Usage: `## Flags: <json-definition>`
 

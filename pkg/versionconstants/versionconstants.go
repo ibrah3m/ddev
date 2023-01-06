@@ -17,13 +17,13 @@ var SegmentKey = ""
 var WebImg = "drud/ddev-webserver"
 
 // WebTag defines the default web image tag
-var WebTag = "20221031_healthcheck_no_profile" // Note that this can be overridden by make
+var WebTag = "v1.21.4" // Note that this can be overridden by make
 
 // DBImg defines the default db image used for applications.
 var DBImg = "drud/ddev-dbserver"
 
 // BaseDBTag is the main tag, DBTag is constructed from it
-var BaseDBTag = "20221026_uid_collision"
+var BaseDBTag = "v1.21.4"
 
 // DBAImg defines the default phpmyadmin image tag used for applications.
 var DBAImg = "phpmyadmin"
@@ -31,11 +31,8 @@ var DBAImg = "phpmyadmin"
 // DBATag defines the default phpmyadmin image tag used for applications.
 var DBATag = "5" // Note that this can be overridden by make
 
-// RouterImage defines the image used for the router.
-var RouterImage = "drud/ddev-router"
-
-// RouterTag defines the tag used for the router.
-var RouterTag = "v1.21.3" // Note that this can be overridden by make
+const TraditionalRouterImage = "drud/ddev-router:v1.21.4"
+const TraefikRouterImage = "traefik:v2.9"
 
 // SSHAuthImage is image for agent
 // var SSHAuthImage = "drud/ddev-ssh-agent"
@@ -43,7 +40,7 @@ var SSHAuthImage = "drud/ddev-ssh-agent"
 
 // SSHAuthTag is ssh-agent auth tag
 // var SSHAuthTag = "v1.19.0"
-var SSHAuthTag = "v1.21.3"
+var SSHAuthTag = "v1.21.4"
 
 // Busybox is used a couple of places for a quick-pull
 var BusyboxImage = "busybox:stable"
@@ -96,7 +93,11 @@ func GetSSHAuthImage() string {
 	return fmt.Sprintf("%s:%s", SSHAuthImage, SSHAuthTag)
 }
 
-// GetRouterImage returns the correctly formatted router image:tag reference
+// GetRouterImage returns the router image:tag reference
 func GetRouterImage() string {
-	return fmt.Sprintf("%s:%s", RouterImage, RouterTag)
+	image := TraditionalRouterImage
+	if globalconfig.DdevGlobalConfig.UseTraefik {
+		image = TraefikRouterImage
+	}
+	return image
 }

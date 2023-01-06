@@ -13,13 +13,13 @@ You’ll need a Docker provider on your system before you can [install DDEV](dde
     We recommend [Colima](https://github.com/abiosoft/colima), a project that bundles a container management tool called [Lima](https://github.com/lima-vm/lima) with a Docker (Linux) backend.
 
     !!!tip "Wait ... Colima?"
-        Yes! See *Why do you recommend Colima over Docker Desktop on macOS?* in [the FAQ](../basics/faq.md).
+        Yes! See *Why do you recommend Colima over Docker Desktop on macOS?* in [the FAQ](../usage/faq.md).
     
     1. Run `docker help` to make sure you’ve got the Docker client installed. If you get an error, install it with [Homebrew](https://brew.sh) by running `brew install docker`.
     2. Install Colima with `brew install colima` or one of the other [installation options](https://github.com/abiosoft/colima/blob/main/docs/INSTALL.md).
     3. Start Colima with 4 CPUs, 6GB memory, 100GB storage, and Cloudflare DNS, adjusting as needed:  
     ```
-    colima start --cpu 4 --memory 6 --disk 100 --dns=1.1.1.1
+    colima start --cpu 4 --memory 6 --disk 100 --vm-type=qemu --mount-type=sshfs --dns=1.1.1.1
     ```
     4. After [installing DDEV](ddev-installation.md), configure your system to use Mutagen—essential for DDEV with Colima—with `ddev config global --mutagen-enabled`.
     
@@ -41,9 +41,9 @@ You’ll need a Docker provider on your system before you can [install DDEV](dde
 
     Move your project databases from Docker Desktop to Colima:
 
-    1. Make sure all your projects are listed in [`ddev list`](../basics/commands.md#list).
-    2. In Docker Desktop, [`ddev snapshot --all`](../basics/commands.md#snapshot).
-    3. After starting Colima, start each project and [`ddev snapshot restore --latest`](../basics/commands.md#snapshot-restore).
+    1. Make sure all your projects are listed in [`ddev list`](../usage/commands.md#list).
+    2. In Docker Desktop, [`ddev snapshot --all`](../usage/commands.md#snapshot).
+    3. After starting Colima, start each project and [`ddev snapshot restore --latest`](../usage/commands.md#snapshot-restore).
     
     ### Docker Desktop for Mac
 
@@ -55,46 +55,17 @@ You’ll need a Docker provider on your system before you can [install DDEV](dde
 
     If you’re working inside WSL2, which we recommend, you can [install Docker Engine (docker-ce) inside of it](#docker-ce-inside-windows-wsl2). Otherwise, you can [install Docker Desktop](#docker-desktop-for-windows), which works with both traditional Windows and WSL2.
 
-    ## Docker CE Inside Windows WSL2
+    ### Docker CE Inside Windows WSL2
 
     Many have moved away from using Docker Desktop in favor of the Docker-provided open-source `docker-ce` package inside WSL2.
 
-    Most of the installation is the same as on Linux:
-
-    * If you already have Docker Desktop installed, make sure to disable its integration with your WSL2 distro. In *Resources* → *WSL Integration*, disable integration with the default distro and with your particular distro.
-    * If you don’t already have WSL2, install it with `wsl --install`. This will likely require a reboot.
-    * Run `wsl --set-default-version 2`.
-    * If the `Ubuntu` distro is not already installed and the default distro (see `wsl -l -v`) then install it with `wsl --install Ubuntu`.
-    * Install `docker-ce` in WSL2 using the normal Linux instructions. For Debian/Ubuntu, run the following inside the WSL2 distro:
-        ```bash
-        sudo apt-get remove docker docker-engine docker.io containerd runc
-        sudo apt-get update && sudo apt-get install ca-certificates curl gnupg lsb-release
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-        sudo apt-get update && sudo apt-get -y install docker-ce docker-ce-cli containerd.io
-        sudo groupadd docker && sudo usermod -aG docker $USER
-        ```
-    * You have to start `docker-ce` yourself on login, or use a script to automate it. To have it start on entry to Git Bash, add a startup line to your (Windows-side) `~/.bashrc` with:
-        ```bash
-        echo "wsl.exe -u root service docker status > /dev/null || wsl.exe -u root service docker start > /dev/null" >> ~/.bashrc
-        ```
-
-        `source ~/.bashrc` to start immediately, or it should start with your next Git Bash session.
-
-    * [Install mkcert](https://github.com/FiloSottile/mkcert#windows) on the Windows side, which may be easiest with [Chocolatey](https://chocolatey.org/install): 
-        * In an administrative PowerShell: 
-            ```
-            Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.        ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/        install.ps1'))
-            ```
-        * In an administrative PowerShell: `choco install -y mkcert`.
-        * In an administrative PowerShell, run `mkcert -install` and follow prompts to install the Certificate Authority.
-        * In an administrative PowerShell, run `setx CAROOT "$(mkcert -CAROOT)"; If ($Env:WSLENV -notlike "*CAROOT/up:*") { setx WSLENV "CAROOT/up:$Env:WSLENV" }`. This will set WSL2 to use the Certificate Authority installed on the Windows side.
-        * Double-check in Ubuntu (or your distro): `echo $CAROOT` should show something like `/mnt/c/Users/<you>/AppData/Local/mkcert`.
-        * Inside your WSL2 distro, `mkcert -install`.
+    The instructions for [DDEV Installation in WSL2](ddev-installation.md#windows-wsl2) include Docker CE setup and a script that does almost all the work. Please use those.
 
     ### Docker Desktop for Windows
 
     Docker Desktop for Windows can be downloaded via [Chocolatey](https://chocolatey.org/install) with `choco install docker-desktop` or it can be downloaded from [docker.com](https://www.docker.com/products/docker-desktop). It has extensive automated testing with DDEV, and works with DDEV both on traditional Windows and in WSL2.
+
+    See [WSL2 DDEV Installation](ddev-installation.md#windows-wsl2) for help installing DDEV with Docker Desktop on WSL2.
 
 === "Linux"
 
@@ -115,7 +86,7 @@ You’ll need a Docker provider on your system before you can [install DDEV](dde
     Linux installation **absolutely** requires adding your Linux user to the `docker` group, and configuring the Docker daemon to start at boot. See [Post-installation steps for Linux](https://docs.docker.com/engine/install/linux-postinstall/).
 
     !!!warning "Don’t `sudo` with `docker` or `ddev`"
-        Don’t use `sudo` with the `docker` command. If you find yourself needing it, you haven’t finished the installation. You also shouldn’t use `sudo` with `ddev` unless it’s specifically for the [`ddev hostname`](../basics/commands.md#hostname) command.
+        Don’t use `sudo` with the `docker` command. If you find yourself needing it, you haven’t finished the installation. You also shouldn’t use `sudo` with `ddev` unless it’s specifically for the [`ddev hostname`](../usage/commands.md#hostname) command.
 
     On systems without `systemd` or its equivalent—mostly if you’re installing inside WSL2—you’ll need to manually start Docker with `service docker start` or the equivalent in your distro. You can add this to your shell profile.
 
@@ -124,6 +95,12 @@ You’ll need a Docker provider on your system before you can [install DDEV](dde
     ## Gitpod
 
     With [Gitpod](https://www.gitpod.io) you don’t have to install anything at all. Docker is all set up for you. 
+
+=== "Codespaces"
+
+    ## GitHub Codespaces
+
+    You can set up [GitHub Codespaces](https://github.com/features/codespaces) following the instructions in the [DDEV Installation](ddev-installation.md#github-codespaces) section.
 
 <a name="troubleshooting"></a>
 
@@ -146,8 +123,8 @@ The result should be a list of the files in your project directory.
 
 If you get an error or don’t see the contents of your project directory, you’ll need to troubleshoot further:
 
-* For a “port is already allocated” error, see the [Troubleshooting](../basics/troubleshooting.md#web-server-ports-already-occupied) page.
+* For a “port is already allocated” error, see the [Troubleshooting](../usage/troubleshooting.md#web-server-ports-already-occupied) page.
 * “invalid mount config for type "bind": bind mount source path does not exist: [some path]” means the filesystem isn’t successfully shared into the Docker container.
 * If you’re seeing “The path (...) is not shared and is not known to Docker”, find *File sharing* in your Docker settings make sure the appropriate path or drive is included.
 * “Error response from daemon: Get registry-1.docker.io/v2/” may mean Docker isn’t running or you don’t have internet access. Try starting or restarting Docker, and confirm you have a working internet connection.
-* If you’re seeing “403 authentication required” trying to [`ddev start`](../basics/commands.md#start), run `docker logout` and try again. Docker authentication is *not* required for any normal DDEV action.
+* If you’re seeing “403 authentication required” trying to [`ddev start`](../usage/commands.md#start), run `docker logout` and try again. Docker authentication is *not* required for any normal DDEV action.

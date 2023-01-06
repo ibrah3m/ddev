@@ -10,17 +10,42 @@ Alternately, you can see the latest build in action by visiting DDEV on [Gitpod]
 
 ## Testing a PR
 
-Each build of a PR has artifacts created in GitHub, so you can click the details of the [PR Build](https://github.com/drud/ddev/actions/workflows/pr-build.yml) test, choose the PR you want to work with, and download the artifacts you need.
+Each [PR build](https://github.com/drud/ddev/actions/workflows/pr-build.yml) creates GitHub artifacts you can use for testing, so you can download the one you need from the PR page, install it locally, and test using that build.
 
-After you download and unzip the appropriate binary, you can place it in your `$PATH`. The easiest way to do this if you’re using Homebrew is `brew unlink ddev` and then `unzip ddev.zip && chmod +x ddev && mv ddev /usr/local/bin/ddev`.
+Download and unzip the appropriate binary and place it in your `$PATH`.
 
-Verify the replacement worked via `ddev -v`. The output should be something like `ddev version v1.19.1-42-g5334d3c1`, instead of the regular `ddev version v1.19.1`.
+If you’re using Homebrew, start by unlinking your current binary:
 
-(On macOS these downloaded binaries are not signed, so you’ll want to `xattr -r -d com.apple.quarantine /path/to/ddev` in order to use them. The binaries on the master branch and the final binaries in any release *are* signed.)
+```
+brew unlink ddev
+```
+
+Next, unzip the binary you downloaded, make it executable, and move it to your bin folder:
+
+```
+unzip ddev.zip
+chmod +x ddev && sudo mv ddev /usr/local/bin/ddev
+```
+
+Verify the replacement worked by running `ddev -v`. The output should be something like `ddev version v1.19.1-42-g5334d3c1`, instead of the regular `ddev version v1.19.1`.
+
+!!!tip "macOS and Unsigned Binaries"
+    macOS doesn’t like these these downloaded binaries, so you’ll need to bypass the automatic quarantine to use them:
+
+    ```
+    xattr -r -d com.apple.quarantine /usr/local/bin/ddev
+    ```
+
+    (The binaries on the master branch and the final release binaries _are_ signed.)
 
 You do not typically have to install anything else other than the downloaded binary; when you run it it will access any Docker images that it needs.
 
-After you’re done, you can remove the downloaded binary and `brew link ddev`.
+After you’re done, you can delete your downloaded binary and re-link the original Homebrew one:
+
+```
+sudo rm /usr/local/bin/ddev
+brew link --force ddev
+```
 
 ## Open in Gitpod
 
@@ -31,7 +56,7 @@ To open and work on DDEV you can use the button below.
 
 If you want to run a web project, you can check it out into `/workspace/<yourproject>` and use it as usual. The things you’re familiar with work normally, except that `ddev-router` does not run.
 
-A Gitpod dummy project for is provided by default in `/workspace/d9simple`. If you’re testing your own project, you will need to delete it to free up reserved host ports by running `ddev delete -Oy d9simple`. Then you can run [`ddev start`](../users/basics/commands.md#start) to work with your own.
+A Gitpod dummy project for is provided by default in `/workspace/d9simple`. If you’re testing your own project, you will need to delete it to free up reserved host ports by running `ddev delete -Oy d9simple`. Then you can run [`ddev start`](../users/usage/commands.md#start) to work with your own.
 
 ## Making Changes to DDEV Images
 
@@ -51,7 +76,7 @@ cd /workspace/ddev
 make
 ```
 
-`ddev version` should show you that you are using the correct webtag, and [`ddev start`](../users/basics/commands.md#start) will show it.
+`ddev version` should show you that you are using the correct webtag, and [`ddev start`](../users/usage/commands.md#start) will show it.
 
 It’s easiest to do this using Gitpod (see above) because Gitpod already has `docker buildx` all set up for you and the built DDEV binary is in the `$PATH`.
 

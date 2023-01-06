@@ -100,16 +100,12 @@ ddev start --all`,
 
 			output.UserOut.Printf("Starting %s...", project.GetName())
 			if err := project.Start(); err != nil {
-				util.Error("Failed to start %s: %v", project.GetName(), err)
-				if project.IsMutagenEnabled() {
-					_ = ddevapp.TerminateMutagenSync(project)
-				}
-				continue
+				util.Failed("Failed to start %s: %v", project.GetName(), err)
 			}
 
 			util.Success("Successfully started %s", project.GetName())
 			httpURLs, httpsURLs, _ := project.GetAllURLs()
-			if !nodeps.IsGitpod() && (globalconfig.GetCAROOT() == "" || ddevapp.IsRouterDisabled(project)) {
+			if !nodeps.IsGitpod() && !nodeps.IsCodespaces() && (globalconfig.GetCAROOT() == "" || ddevapp.IsRouterDisabled(project)) {
 				httpsURLs = httpURLs
 			}
 			util.Success("Project can be reached at %s", strings.Join(httpsURLs, " "))

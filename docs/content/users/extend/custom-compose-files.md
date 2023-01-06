@@ -31,17 +31,17 @@ That approach usually isn’t sustainable because two projects might want to use
 
 ```yaml
 services:
-    someservice:
-        container_name: "ddev-${DDEV_SITENAME}-someservice"
-        labels:
-        com.ddev.site-name: ${DDEV_SITENAME}
-        com.ddev.approot: ${DDEV_APPROOT}
-        expose: 
-        - "9999"
-        environment:
-        - VIRTUAL_HOST=$DDEV_HOSTNAME
-        - HTTP_EXPOSE=9998:9999
-        - HTTPS_EXPOSE=9999:9999
+  someservice:
+    container_name: "ddev-${DDEV_SITENAME}-someservice"
+    labels:
+      com.ddev.site-name: ${DDEV_SITENAME}
+      com.ddev.approot: ${DDEV_APPROOT}
+    expose:
+      - "9999"
+    environment:
+      - VIRTUAL_HOST=$DDEV_HOSTNAME
+      - HTTP_EXPOSE=9998:9999
+      - HTTPS_EXPOSE=9999:9999
 ```
 
 ## Confirming docker-compose Configurations
@@ -73,6 +73,6 @@ When defining additional services for your project, we recommended following the
 
 ## Interacting with Additional Services
 
-[`ddev exec`](../basics/commands.md#exec), [`ddev ssh`](../basics/commands.md#ssh), and [`ddev logs`](../basics/commands.md#logs) interact with containers on an individual basis.
+[`ddev exec`](../usage/commands.md#exec), [`ddev ssh`](../usage/commands.md#ssh), and [`ddev logs`](../usage/commands.md#logs) interact with containers on an individual basis.
 
 By default, these commands interact with the `web` container for a project. All of these commands, however, provide a `--service` or `-s` flag allowing you to specify the service name of the container to interact with. For example, if you added a service to provide Apache Solr, and the service was named `solr`, you would be able to run `ddev logs --service solr` to retrieve the Solr container’s logs.

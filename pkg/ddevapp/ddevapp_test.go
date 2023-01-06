@@ -585,7 +585,7 @@ func TestDdevStartMultipleHostnames(t *testing.T) {
 			_, _ = testcommon.EnsureLocalHTTPContent(t, url+site.Safe200URIWithExpectation.URI, site.Safe200URIWithExpectation.Expect)
 		}
 
-		out, err := exec.RunHostCommand(DdevBin, "list")
+		out, err := exec.RunHostCommand(DdevBin, "list", "--wrap-table")
 		assert.NoError(err)
 		t.Logf("=========== output of ddev list ==========\n%s\n============", out)
 
@@ -793,8 +793,7 @@ func TestDdevXdebugEnabled(t *testing.T) {
 
 	// Most of the time there's no reason to do all versions of PHP
 	phpKeys := []string{}
-	// TODO: Re-enable 8.2 when it's available
-	exclusions := []string{"5.6", "7.0", "7.1", "7.2", "7.3", "8.2"}
+	exclusions := []string{"5.6", "7.0", "7.1", "7.2", "7.3"}
 	for k := range nodeps.ValidPHPVersions {
 		if os.Getenv("GOTEST_SHORT") != "" && !nodeps.ArrayContainsString(exclusions, k) {
 			phpKeys = append(phpKeys, k)
@@ -830,8 +829,8 @@ func TestDdevXdebugEnabled(t *testing.T) {
 			t.Errorf("Aborting xdebug check for php%s: %v", v, err)
 			continue
 		}
-		// PHP 7.2 through 8.1 gets xdebug 3.0+
-		if nodeps.ArrayContainsString([]string{nodeps.PHP72, nodeps.PHP73, nodeps.PHP74, nodeps.PHP80, nodeps.PHP81}, app.PHPVersion) {
+		// PHP 7.2 through 8.2 get xdebug 3.0+
+		if nodeps.ArrayContainsString([]string{nodeps.PHP72, nodeps.PHP73, nodeps.PHP74, nodeps.PHP80, nodeps.PHP81, nodeps.PHP82}, app.PHPVersion) {
 			assert.Contains(stdout, "xdebug.mode => debug,develop => debug,develop", "xdebug is not enabled for %s", v)
 			assert.Contains(stdout, "xdebug.client_host => host.docker.internal => host.docker.internal")
 		} else {
@@ -942,8 +941,9 @@ func TestDdevXhprofEnabled(t *testing.T) {
 	// Does not work with php5.6 anyway (SEGV), for resource conservation
 	// skip older unsupported versions
 	phpKeys := []string{}
-	// TODO: Re-enable 8.2 when it's available. Disable more of these.
-	exclusions := []string{"5.6", "7.0", "7.1", "8.2"}
+	// 20221211: 8.1 and 8.2 are not currently working due to upstream
+	// problems
+	exclusions := []string{"5.6", "7.0", "7.1", "7.2", "7.3", "8.1", "8.2"}
 	for k := range nodeps.ValidPHPVersions {
 		if !nodeps.ArrayContainsString(exclusions, k) {
 			phpKeys = append(phpKeys, k)
@@ -1470,7 +1470,7 @@ func TestDdevAllDatabases(t *testing.T) {
 	dbVersions = nodeps.RemoveItemFromSlice(dbVersions, "postgres:9")
 	//Use a smaller list if GOTEST_SHORT
 	if os.Getenv("GOTEST_SHORT") != "" {
-		dbVersions = []string{"postgres:14", "mariadb:10.3", "mariadb:10.4", "mysql:8.0", "mysql:5.7"}
+		dbVersions = []string{"postgres:10", "postgres:11", "postgres:14", "mariadb:10.3", "mariadb:10.4", "mariadb:10.6", "mysql:8.0", "mysql:5.7"}
 		t.Logf("Using limited set of database servers because GOTEST_SHORT is set (%v)", dbVersions)
 	}
 
@@ -3758,7 +3758,7 @@ func TestCustomCerts(t *testing.T) {
 	t.Cleanup(func() {
 		_ = os.RemoveAll(certDir)
 		_, _, err = app.Exec(&ddevapp.ExecOpts{
-			Cmd: "rm /mnt/ddev-global-cache/custom_certs/" + app.GetHostname() + "*",
+			Cmd: fmt.Sprintf("rm -f /mnt/ddev-global-cache/custom_certs/%s* /mnt/ddev-global-cache/traefik/certs/%s.*", app.GetHostname(), app.Name),
 		})
 		assert.NoError(err)
 		err = app.Stop(true, false)
@@ -3768,32 +3768,38 @@ func TestCustomCerts(t *testing.T) {
 	// Start without cert and make sure normal DNS names are there
 	err = app.Start()
 	assert.NoError(err)
-	stdout, _, err := app.Exec(&ddevapp.ExecOpts{
+	out, _, err := app.Exec(&ddevapp.ExecOpts{
 		Cmd: fmt.Sprintf("openssl s_client -connect %s:443 -servername %s </dev/null 2>/dev/null | openssl x509 -noout -text | perl -l -0777 -ne '@names=/\\bDNS:([^\\s,]+)/g; print join(\"\\n\", sort @names);'", app.GetHostname(), app.GetHostname()),
 	})
-	stdout = strings.Trim(stdout, "\r\n")
+	out = strings.Trim(out, "\r\n")
 	// This should be our regular wildcard cert
-	assert.Contains(stdout, "*.ddev.site")
+	assert.Contains(out, "*.ddev.site")
 
 	// Now stop it so we can install new custom cert.
 	err = app.Stop(true, false)
 	assert.NoError(err)
 
-	// Create a certfile/key in .ddev/custom_certs with just one DNS name in it
+	// Generate a certfile/key in .ddev/custom_certs with just one DNS name in it
 	// mkcert --cert-file d9composer.ddev.site.crt --key-file d9composer.ddev.site.key d9composer.ddev.site
-	out, err := exec.RunHostCommand("mkcert", "--cert-file", filepath.Join(certDir, app.GetHostname()+".crt"), "--key-file", filepath.Join(certDir, app.GetHostname()+".key"), app.GetHostname())
+	// For traefik generation, it's app.Name,
+	// mkcert --cert-file d9.crt --key-file d9.key d9.ddev.site
+	baseCertName := app.GetHostname()
+	if globalconfig.DdevGlobalConfig.UseTraefik {
+		baseCertName = app.Name
+	}
+	out, err = exec.RunHostCommand("mkcert", "--cert-file", filepath.Join(certDir, baseCertName+".crt"), "--key-file", filepath.Join(certDir, baseCertName+".key"), app.GetHostname())
 	assert.NoError(err, "mkcert command failed, out=%s", out)
 
 	err = app.Start()
 	assert.NoError(err)
 
-	stdout, _, err = app.Exec(&ddevapp.ExecOpts{
+	out, _, err = app.Exec(&ddevapp.ExecOpts{
 		Cmd: fmt.Sprintf("openssl s_client -connect %s:443 -servername %s </dev/null 2>/dev/null | openssl x509 -noout -text | perl -l -0777 -ne '@names=/\\bDNS:([^\\s,]+)/g; print join(\"\\n\", sort @names);'", app.GetHostname(), app.GetHostname()),
 	})
-	stdout = strings.Trim(stdout, "\r\n")
+	out = strings.Trim(out, "\r\n")
 	// If we had the regular cert, there would be several things here including *.ddev.site
 	// But we should only see the hostname listed.
-	assert.Equal(app.GetHostname(), stdout)
+	assert.Equal(app.GetHostname(), out)
 }
 
 // TestEnvironmentVariables tests to make sure that documented environment variables appear
@@ -3868,6 +3874,7 @@ func TestEnvironmentVariables(t *testing.T) {
 		"DDEV_DOCROOT":             app.GetDocroot(),
 		"DDEV_HOST_DB_PORT":        dbPortStr,
 		"DDEV_HOST_HTTPS_PORT":     app.HostHTTPSPort,
+		"DDEV_HOST_MAILHOG_PORT":   app.HostMailhogPort,
 		"DDEV_HOST_WEBSERVER_PORT": app.HostWebserverPort,
 		"DDEV_HOSTNAME":            app.GetHostname(),
 		"DDEV_PHP_VERSION":         app.PHPVersion,
@@ -3888,6 +3895,47 @@ func TestEnvironmentVariables(t *testing.T) {
 		assert.Equal(v, lines[0], "expected envvar $%s to equal '%s', but it was '%s'", k, v, envVal)
 	}
 
+}
+
+// TestEnvFile tests checks behavior of .ddev/.env files
+func TestEnvFile(t *testing.T) {
+	assert := asrt.New(t)
+
+	origDir, _ := os.Getwd()
+	site := TestSites[0]
+
+	app, err := ddevapp.NewApp(site.Dir, false)
+	assert.NoError(err)
+	err = os.Chdir(site.Dir)
+	assert.NoError(err)
+
+	err = fileutil.TemplateStringToFile("JUNK1=junk1\nJUNK2=junk2\n", nil, app.GetConfigPath(".env"))
+	require.NoError(t, err)
+
+	err = app.Start()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		err = app.Stop(true, false)
+		assert.NoError(err)
+		err = os.RemoveAll(app.GetConfigPath(".env"))
+		assert.NoError(err)
+		err = os.Chdir(origDir)
+		assert.NoError(err)
+	})
+
+	// This set of webContainerExpectations should be maintained to match the list in the docs
+	expectedCustomEnv := map[string]string{
+		"JUNK1": "junk1",
+		"JUNK2": "junk2",
+	}
+	for k, v := range expectedCustomEnv {
+		envVal, _, err := app.Exec(&ddevapp.ExecOpts{
+			Cmd: fmt.Sprintf("echo ${%s}", k),
+		})
+		assert.NoError(err)
+		envVal = strings.Trim(envVal, "\r\n")
+		assert.Equal(v, envVal)
+	}
 }
 
 // constructContainerName builds a container name given the type (web/db/dba) and the app

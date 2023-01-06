@@ -89,7 +89,12 @@ services:
         username: '{{ .Username }}'
         uid: '{{ .UID }}'
         gid: '{{ .GID }}'
+        DDEV_PHP_VERSION: ${DDEV_PHP_VERSION}
     image: ${DDEV_WEBIMAGE}-${DDEV_SITENAME}-built
+    {{ if .EnvFile }}
+    env_file: '{{ .EnvFile }}'
+    {{ end }}
+
     {{ if .UseHostDockerInternalExtraHosts }}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -215,6 +220,7 @@ services:
       com.ddev.platform: {{ .Plugin }}
       com.ddev.app-type: {{ .AppType }}
       com.ddev.approot: $DDEV_APPROOT
+
       {{ if .HostDockerInternalIP }}
     extra_hosts: [ "host.docker.internal:{{ .HostDockerInternalIP }}" ]
       {{ end }}

@@ -12,7 +12,7 @@ The project's `.ddev/config.yaml` file defines the PHP version to use. The [`php
 
 ## Changing Web Server Type
 
-DDEV supports nginx with php-fpm by default (`nginx-fpm`), and Apache with php-fpm (`apache-fpm`). These can be changed using [`webserver_type`](../configuration/config.md#webserver_type) in `.ddev/config.yaml`, for example `webserver_type: apache-fpm`.
+DDEV supports nginx with php-fpm by default (`nginx-fpm`), and Apache with php-fpm (`apache-fpm`). You can change this with the [`webserver_type`](../configuration/config.md#webserver_type) config option, or using the [`ddev config`](../usage/commands.md#config) command with the `--webserver-type` flag.
 
 ## Adding Services to a Project
 
@@ -27,11 +27,11 @@ If you need to create a service configuration for your project, see [Defining Ad
 There are many ways to deploy Node.js in any project, so DDEV tries to let you set up any possibility you can come up with.
 
 * You can choose the Node.js version you want to use in `.ddev/config.yaml` with [`nodejs_version`](../configuration/config.md#nodejs_version).
-* [`ddev nvm`](../basics/commands.md#nvm) gives you the full capabilities of [Node Version Manager](https://github.com/nvm-sh/nvm).
-* [`ddev npm`](../basics/commands.md#npm) and [`ddev yarn`](../basics/commands.md#yarn) provide shortcuts to the `npm` and `yarn` commands inside the container, and their caches are persistent.
+* [`ddev nvm`](../usage/commands.md#nvm) gives you the full capabilities of [Node Version Manager](https://github.com/nvm-sh/nvm).
+* [`ddev npm`](../usage/commands.md#npm) and [`ddev yarn`](../usage/commands.md#yarn) provide shortcuts to the `npm` and `yarn` commands inside the container, and their caches are persistent.
 * You can run Node.js daemons using [`web_extra_daemons`](#running-extra-daemons-in-the-web-container).
 * You can expose Node.js ports via `ddev-router` by using [`web_extra_exposed_ports`](#exposing-extra-ports-via-ddev-router).
-* You can manually run Node.js scripts using [`ddev exec <script>`](../basics/commands.md#exec) or `ddev exec nodejs <script>`.
+* You can manually run Node.js scripts using [`ddev exec <script>`](../usage/commands.md#exec) or `ddev exec nodejs <script>`.
 
 !!!tip "Please share your techniques!"
     There are several ways to share your favorite Node.js tips and techniques. Best are [ddev-get add-ons](additional-services.md#additional-service-configurations-and-add-ons-for-ddev), [Stack Overflow](https://stackoverflow.com/tags/ddev), and [ddev-contrib](https://github.com/drud/ddev-contrib).
@@ -40,7 +40,7 @@ There are many ways to deploy Node.js in any project, so DDEV tries to let you s
 
 There are several ways to run processes inside the `web` container.
 
-1. Manually execute them as needed, with [`ddev exec`](../basics/commands.md#exec), for example.
+1. Manually execute them as needed, with [`ddev exec`](../usage/commands.md#exec), for example.
 2. Run them with a `post-start` [hook](../configuration/hooks.md).
 3. Run them automatically using `web_extra_daemons`.
 
@@ -78,7 +78,7 @@ web_extra_daemons:
 * `command` is best as a simple binary with its arguments, but Bash features like `cd` or `&&` work. If the program to be run is not in the `ddev-webserver` `$PATH` then it should have the absolute in-container path to the program to be run, like `/var/www/html/node_modules/.bin/http-server`.
 * `web_extra_daemons` is a shortcut for adding a configuration to `supervisord`, which organizes daemons inside the web container. If the default settings are inadequate for your use, you can write a [complete config file for your daemon](#explicit-supervisord-configuration-for-additional-daemons).
 * Your daemon is expected to run in the foreground, not to daemonize itself, `supervisord` will take care of that.
-* To see the results of the attempt to start your daemon, see [`ddev logs`](../basics/commands.md#logs) or `docker logs ddev-<project>-web`.
+* To see the results of the attempt to start your daemon, see [`ddev logs`](../usage/commands.md#logs) or `docker logs ddev-<project>-web`.
 
 ## Exposing Extra Ports via `ddev-router`
 
@@ -111,33 +111,39 @@ web_extra_exposed_ports:
 
 ## Providing Custom Environment Variables to a Container
 
-Custom environment variables may be set in the project’s `.ddev/config.yaml` or the global `~/.ddev/global_config.yaml` with the [`web_environment`](../configuration/config.md#web_environment) key:
+You can set custom environment variables in several places:
 
-```yaml
-web_environment:
-- SOMEENV=someval
-- SOMEOTHERENV=someotherval
+* The project’s [`web_environment`](../configuration/config.md#web_environment) setting in `.ddev/config.yaml` or `.ddev/config.*.yaml`:
+
+    ```yaml
+    web_environment:
+    - MY_ENV_VAR=someval
+    - MY_OTHER_ENV_VAR=someotherval
+    ```
+
+* The global `web_environment` setting in `.ddev/global_config.yaml`.
+
+* An optional, project-level `.ddev/.env` file, which could look something like this:
+
+    ```
+    MY_ENV_VAR='someval'
+    MY_OTHER_ENV_VAR='someotherval'
+    ```
+
+If you’d rather use the CLI to set the project or global `web_environment` value, you can use the [`ddev config`](../usage/commands.md#config) command:
+
+```sh
+# Set MY_ENV_VAR for the project
+ddev config --web-environment-add="MY_ENV_VAR=someval"
+
+# Set MY_ENV_VAR globally
+ddev config global --web-environment-add="MY_ENV_VAR=someval
 ```
 
-You can also use `ddev config global --web-environment-add="SOMEENV=someval"` or `ddev config --web-environment-add="SOMEENV=someval"` for the same purpose. The command just sets the values in the configuration files. (The `--web-environment` option is also available, but it overwrites existing contents.)
+You can use the `--web-environment` flag to overwrite existing values rather than adding them.
 
-The docker-compose web environment can also provide `.env` file support. To enable this, create a new docker-compose YAML partial like `.ddev/docker-compose.env-file.yaml`:
-
-```
-services:
-  web:
-    env_file:
-      - ../.env
-```
-
-You would create the `.env` file in the project root and provide globals within it as such:
-
-```
-SOMEENV='someval'
-SOMEOTHERENV='someotherval'
-```
-
-The globals from the env file would be available on the next DDEV start. It’s important to note that typically the `.env` file should *not* be placed under source control, especially if it contains private API keys or passwords.
+!!!warning "Don’t check in sensitive values!"
+    Sensitive variables like API keys should not be checked in with your project. Typically you might use an `.env` file and _not_ check that in, but offer `.env.example` with expected keys that don’t have values. Some use global configuration for sensitive values, as that’s not normally checked in either.
 
 ### Altering the In-Container `$PATH`
 
@@ -156,23 +162,23 @@ export PATH=$PATH:/var/www/html/somewhereelse/vendor/bin
 
 ## Custom nginx Configuration
 
-When you [`ddev start`](../basics/commands.md#start) using `nginx-fpm`, DDEV creates a configuration customized to your project type in `.ddev/nginx_full/nginx-site.conf`. You can edit and override the configuration by removing the `#ddev-generated` line and doing whatever you need with it. After each change, `ddev start`.
+When you run [`ddev restart`](../usage/commands.md#restart) using `nginx-fpm`, DDEV creates a configuration customized to your project type in `.ddev/nginx_full/nginx-site.conf`. You can edit and override the configuration by removing the `#ddev-generated` line and doing whatever you need with it. After each change, run `ddev restart`.
 
-You can also have more than one config file in the `.ddev/nginx_full` directory, they will all get loaded when DDEV starts. This can be used for [serving multiple docroots](#multiple-docroots-in-nginx-advanced) and other techniques.
+You can also have more than one config file in the `.ddev/nginx_full` directory, and each will be loaded when DDEV starts. This can be used for [serving multiple docroots](#multiple-docroots-in-nginx-advanced) and other techniques.
 
 ### Troubleshooting nginx Configuration
 
-* Any errors in your configuration may cause the `web` container to fail and try to restart. If you see that behavior, use [`ddev logs`](../basics/commands.md#logs) to diagnose.
-* You can run `ddev exec nginx -t` to test whether your configuration is valid. (Or run [`ddev ssh`](../basics/commands.md#ssh) and run `nginx -t`.)
-* You can reload the nginx configuration either with [`ddev start`](../basics/commands.md#start) or `ddev exec nginx -s reload`.
+* Any errors in your configuration may cause the `web` container to fail and try to restart. If you see that behavior, use [`ddev logs`](../usage/commands.md#logs) to diagnose.
+* You can run `ddev exec nginx -t` to test whether your configuration is valid. (Or run [`ddev ssh`](../usage/commands.md#ssh) and run `nginx -t`.)
+* You can reload the nginx configuration by running either [`ddev restart`](../usage/commands.md#restart) or `ddev exec nginx -s reload`.
 * The alias `Alias "/phpstatus" "/var/www/phpstatus.php"` is required for the health check script to work.
 
 !!!warning "Important!"
-    Changes to configuration take place on a [`ddev restart`](../basics/commands.md#restart), when the container is rebuilt for another reason, or when the nginx server receives the reload signal.
+    Changes to configuration take place on a [`ddev restart`](../usage/commands.md#restart), when the container is rebuilt for another reason, or when the nginx server receives the reload signal.
 
 ### Multiple Docroots in nginx (Advanced)
 
-It’s easiest to have different web servers in different DDEV projects, and DDEV projects can [easily communicate with each other](../basics/faq.md), but some sites require more than one docroot for a single project codebase. Sometimes this is because there’s an API built in the same codebase but using different code, or different code for different languages, etc.
+It’s easiest to have different web servers in different DDEV projects, and DDEV projects can [easily communicate with each other](../usage/faq.md), but some sites require more than one docroot for a single project codebase. Sometimes this is because there’s an API built in the same codebase but using different code, or different code for different languages, etc.
 
 The generated `.ddev/nginx_full/seconddocroot.conf.example` demonstrates how to do this. You can create as many of these as you want: change the `servername` and the `root` and customize as needed.
 
@@ -188,19 +194,21 @@ For example, to make all HTTP URLs redirect to their HTTPS equivalents you might
     }
 ```
 
+After adding a snippet, run `ddev restart` to make it take effect.
+
 ## Custom Apache Configuration
 
 If you’re using [`webserver_type: apache-fpm`](../configuration/config.md#webserver_type) in your `.ddev/config.yaml`, you can override the default site configuration by editing or replacing the DDEV-provided `.ddev/apache/apache-site.conf` configuration.
 
 * Edit the `.ddev/apache/apache-site.conf`.
 * Add your configuration changes.
-* Save your configuration file and run [`ddev start`](../basics/commands.md#start) to reload the project. If you encounter issues with your configuration or the project fails to start, use [`ddev logs`](../basics/commands.md#logs) to inspect the logs for possible Apache configuration errors.
+* Save your configuration file and run [`ddev restart`](../usage/commands.md#restart). If you encounter issues with your configuration or the project fails to start, use [`ddev logs`](../usage/commands.md#logs) to inspect the logs for possible Apache configuration errors.
 * Use `ddev exec apachectl -t` to do a general Apache syntax check.
 * The alias `Alias "/phpstatus" "/var/www/phpstatus.php"` is required for the health check script to work.
 * Any errors in your configuration may cause the `web` container to fail. If you see that behavior, use `ddev logs` to diagnose.
 
 !!!warning "Important!"
-    Changes to `.ddev/apache/apache-site.conf` take place on a [`ddev restart`](../basics/commands.md#restart). You can also `ddev exec apachectl -k graceful` to reload the Apache configuration.
+    Changes to `.ddev/apache/apache-site.conf` take place on a [`ddev restart`](../usage/commands.md#restart). You can also `ddev exec apachectl -k graceful` to reload the Apache configuration.
 
 ## Custom PHP Configuration (`php.ini`)
 
@@ -210,7 +218,7 @@ You should generally limit your override to any specific option(s) you need to c
 
 One interesting implication of this behavior is that it’s possible to disable extensions by replacing the configuration file that loads them. For instance, if you were to create an empty file at `.ddev/php/20-xdebug.ini`, it would replace the configuration that loads Xdebug, which would cause Xdebug to not be loaded!
 
-To load the new configuration, run [`ddev restart`](../basics/commands.md#restart).
+To load the new configuration, run [`ddev restart`](../usage/commands.md#restart).
 
 An example file in `.ddev/php/my-php.ini` might look like this:
 
@@ -232,11 +240,11 @@ character-set-server = utf8
 innodb_large_prefix=false
 ```
 
-To load the new configuration, run [`ddev restart`](../basics/commands.md#restart).
+To load the new configuration, run [`ddev restart`](../usage/commands.md#restart).
 
 ## Custom PostgreSQL Configuration
 
-If you’re using PostgreSQL, a default `posgresql.conf` is provided in `.ddev/postgres/postgresql.conf`. If you need to alter it, remove the `#ddev-generated` line and [`ddev restart`](../basics/commands.md#restart).
+If you’re using PostgreSQL, a default `posgresql.conf` is provided in `.ddev/postgres/postgresql.conf`. If you need to alter it, remove the `#ddev-generated` line and [`ddev restart`](../usage/commands.md#restart).
 
 ## Extending `config.yaml` with Custom `config.*.yaml` Files
 
@@ -262,7 +270,7 @@ Teams may choose to use `config.local.yaml` or `config.override.yaml` for all lo
 3. The list of environment variables in [`web_environment`](../configuration/config.md#web_environment) are “smart merged”: if you add the same environment variable with a different value, the value in the override file will replace the value from `config.yaml`.
 4. Hook specifications in the [`hooks`](../configuration/config.md#hooks) variable are merged.
 
-If you need to *override* existing values, set [`override_config: true`](../configuration/config.md#override_config) in the `config.*.yaml` where the override behavior should take place. Since `config.*.yaml` files are normally *merged* into the configuration, some things can’t be overridden normally. For example, if you have [`nfs_mount_enabled: true`](../configuration/config.md#nfs_mount_enabled) you can’t override it with a merge and you can’t erase existing hooks or all environment variables. However, with `override_config: true` in a particular `config.*.yaml` file,
+If you need to _override_ existing values, set [`override_config: true`](../configuration/config.md#override_config) in the `config.*.yaml` where the override behavior should take place. Since `config.*.yaml` files are normally _merged_ into the configuration, some things can’t be overridden normally. For example, if you have [`nfs_mount_enabled: true`](../configuration/config.md#nfs_mount_enabled) you can’t override it with a merge and you can’t erase existing hooks or all environment variables. However, with `override_config: true` in a particular `config.*.yaml` file,
 
 ```yaml
 override_config: true
@@ -288,7 +296,7 @@ can have their intended affect.
 
 [`override_config`](../configuration/config.md#override_config) affects only behavior of the `config.*.yaml` file it exists in.
 
-To experiment with the behavior of a set of `config.*.yaml` files, use the [`ddev debug configyaml`](../basics/commands.md#debug-configyaml) file; it’s especially valuable with the `yq` command, for example `ddev debug configyaml | yq`.
+To experiment with the behavior of a set of `config.*.yaml` files, use the [`ddev debug configyaml`](../usage/commands.md#debug-configyaml) file; it’s especially valuable with the `yq` command, for example `ddev debug configyaml | yq`.
 
 ## Explicit `supervisord` Configuration for Additional Daemons
 

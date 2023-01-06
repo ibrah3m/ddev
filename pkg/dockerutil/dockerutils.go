@@ -627,7 +627,7 @@ func CheckDockerVersion(versionConstraint string) error {
 	}
 
 	// See if they're using broken docker desktop on linux
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" && !IsWSL2() {
 		client := GetDockerClient()
 		info, err := client.Info()
 		if err != nil {
@@ -1066,6 +1066,8 @@ func GetHostDockerInternalIP() (string, error) {
 	// Gitpod has docker 20.10+ so the docker-compose has already gotten the host-gateway
 	case nodeps.IsGitpod():
 		break
+	case nodeps.IsCodespaces():
+		break
 
 	case IsWSL2() && IsDockerDesktop():
 		// If IDE is on Windows, return; we don't have to do anything.
@@ -1106,6 +1108,8 @@ func GetNFSServerAddr() (string, error) {
 	// Gitpod has docker 20.10+ so the docker-compose has already gotten the host-gateway
 	// However, NFS will never be used on gitpod.
 	case nodeps.IsGitpod():
+		break
+	case nodeps.IsCodespaces():
 		break
 
 	case IsWSL2() && IsDockerDesktop():
@@ -1457,10 +1461,12 @@ func CopyIntoContainer(srcPath string, containerName string, dstPath string, exc
 	if err != nil {
 		return err
 	}
+	err = tarball.Close()
+	if err != nil {
+		return err
+	}
 	// nolint: errcheck
 	defer os.Remove(tarball.Name())
-	// nolint: errcheck
-	defer tarball.Close()
 
 	// Tar up the source directory into the tarball
 	err = archive.Tar(srcPath, tarball.Name(), exclusion)
